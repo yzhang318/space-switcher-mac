@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>SpaceSwitcher</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mydesk.space-switcher</string>
+    <key>CFBundleName</key>
+    <string>SpaceSwitcher</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <!-- Hide from Dock and app switcher — runs as menu bar only app -->
+    <key>LSUIElement</key>
+    <true/>
+    <!-- Required for sending key events via System Events (osascript) -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>SpaceSwitcher uses AppleEvents to send keyboard shortcuts to switch macOS Spaces.</string>
+    <!-- Required for IOKit HID mouse button monitoring (Test Mouse Buttons window) -->
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>SpaceSwitcher monitors mouse button input to let you test which buttons are detected on each connected mouse.</string>
+</dict>
+</plist>

@@ -1,0 +1,17 @@
+# Swift / SPM
+.build/
+.swiftpm/
+*.o
+*.d
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# Built app bundle
+SpaceSwitcher.app/
+
+# macOS
+.DS_Store
