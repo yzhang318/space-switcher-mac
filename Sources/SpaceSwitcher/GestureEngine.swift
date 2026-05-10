@@ -63,6 +63,13 @@ final class GestureEngine {
     /// Velocity (px/s) below which the hysteresis sign resets between flicks.
     private let velocityResetThreshold: CGFloat  = 80
 
+    // MARK: Visual feedback overlay (ring around cursor while button held)
+    private let actionRing = ActionRingOverlay()
+    /// Snapshot of the Space layout taken at button-down; used to translate the
+    /// hovered slot into a left/right delta from the current Space.
+    private var spaceLayoutAtDown: (count: Int, currentIndex: Int)?
+    private var ringVisible = false
+
     // MARK: Notifications
     static let didChangeState = Notification.Name("GestureEngineDidChangeState")
 
@@ -100,6 +107,7 @@ final class GestureEngine {
         lastFlickSign     = 0
         buttonDownTime    = nil
         targetDeviceButtonHeld = false
+        actionRing.hide()
     }
 
     // MARK: - Accessibility check
@@ -225,6 +233,20 @@ final class GestureEngine {
         motionSamples.removeAll()
         lastFlickSign     = 0
         buttonDownTime    = Date()
+
+        // Snapshot the live Space layout and show the action ring.
+        // The ring is suppressed for trivial layouts (0 or 1 Space).
+        let layout = SpaceQuery.mainDisplayLayout()
+        spaceLayoutAtDown = layout
+        if let layout, layout.count > 1 {
+            actionRing.show(at: NSEvent.mouseLocation,
+                            slotCount: layout.count,
+                            currentIndex: layout.currentIndex)
+            ringVisible = true
+        } else {
+            ringVisible = false
+        }
+
         broadcastState()
         return nil   // ← suppress: the button-down never reaches any app
     }
@@ -240,13 +262,26 @@ final class GestureEngine {
                         && abs(accumulatedDeltaY) < config.movementThreshold * 0.3
         let isShortClick = elapsed < shortClickDuration && noSwipe
 
+        // Snapshot ring selection BEFORE we hide it.
+        let ringSelection = ringVisible ? actionRing.selectedIndex : nil
+        let layout = spaceLayoutAtDown
+
         gestureButtonHeld = false
         accumulatedDeltaX = 0
         accumulatedDeltaY = 0
         motionSamples.removeAll()
         lastFlickSign     = 0
         buttonDownTime    = nil
+        actionRing.hide()
+        ringVisible = false
+        spaceLayoutAtDown = nil
         broadcastState()
+
+        // Ring selection takes priority over swipe / short-click handling.
+        if let target = ringSelection, let layout {
+            switchToSpace(targetIndex: target, fromIndex: layout.currentIndex)
+            return nil
+        }
 
         if isShortClick {
             // Short click with no significant swipe — restore the original button action.
@@ -290,6 +325,19 @@ final class GestureEngine {
 
     private func onMouseMoved(event: CGEvent) {
         guard gestureButtonHeld else { return }
+
+        // Update the action-ring hover state from the live cursor position.
+        // While the cursor is hovering a numbered slot we suppress swipe firing
+        // so that motion toward a slot doesn't accidentally trigger a swipe.
+        if ringVisible {
+            actionRing.updateCursor(NSEvent.mouseLocation)
+            if actionRing.selectedIndex != nil {
+                accumulatedDeltaX = 0
+                accumulatedDeltaY = 0
+                motionSamples.removeAll()
+                return
+            }
+        }
 
         let dx  = CGFloat(event.getIntegerValueField(.mouseEventDeltaX))
         let dy  = CGFloat(event.getIntegerValueField(.mouseEventDeltaY))
@@ -393,6 +441,53 @@ final class GestureEngine {
         // key code 126 = Up arrow, 125 = Down arrow (with Control).
         let keyCode = up ? 126 : 125
         runControlKey(keyCode)
+    }
+
+    /// Switch directly to a target Space index by firing Control+Arrow N times,
+    /// where N is the absolute distance from the current Space.
+    /// Direction is right (key code 124) when target > current, otherwise left (123).
+    /// Switch directly to a target Space by pressing Ctrl+Arrow N times inside
+    /// a single Control-held block.
+    ///
+    /// Timing note: the macOS Space transition animation is ~300 ms.  Pressing
+    /// the arrow again *during* that animation is silently dropped by the WM,
+    /// so an inter-key delay shorter than the animation drops every other press
+    /// (a 0.15 s gap → only half register).  0.28 s is just past the animation
+    /// while still feeling responsive.
+    private func switchToSpace(targetIndex: Int, fromIndex: Int) {
+        let diff = targetIndex - fromIndex
+        guard diff != 0 else { return }
+        let keyCode = diff > 0 ? 124 : 123
+        let count = abs(diff)
+
+        // Build N key-code lines separated by a short delay.
+        // Use `key down` + `key up` for the arrow (instead of `key code`) so each
+        // press is unambiguously a fresh event rather than auto-repeat, which the
+        // WM treats differently and may coalesce.
+        var keyLines = ""
+        for i in 0..<count {
+            keyLines += "    key down \(keyCode)\n    delay 0.02\n    key up \(keyCode)\n"
+            if i < count - 1 {
+                keyLines += "    delay 0.28\n"
+            }
+        }
+        let script = """
+            tell application "System Events"
+                key down control
+                delay 0.05
+            \(keyLines)    delay 0.05
+                key up control
+            end tell
+            """
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments    = ["-e", script]
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+        } catch {
+            NSLog("GestureEngine: osascript launch failed — %@", error.localizedDescription)
+        }
     }
 
     private func runControlKey(_ keyCode: Int) {
