@@ -14,6 +14,7 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 cp ".build/release/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
 cp "Info.plist"                  "${APP_BUNDLE}/Contents/"
+cp "Resources/AppIcon.icns"      "${APP_BUNDLE}/Contents/Resources/"
 
 echo "==> Done: ${APP_BUNDLE}"
 echo ""
