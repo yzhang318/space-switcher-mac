@@ -47,18 +47,18 @@ Open **Gesture Remap…** from the menu bar.
 
 1. **Enable gesture remap** — check the box to activate.
 2. **Mouse** — choose a specific mouse, or leave on *Any Mouse* to match all devices.
-3. **Button** — the button you hold while swiping (default: Button 4, the typical "Back" button).
+3. **Button** — the button you hold while swiping (default: Button 4 / Back).
+4. **Ring button** — the button that shows the action ring overlay (default: Button 5 / Forward). Hold it to display the Space picker ring; release over a slot to jump directly to that Space.
 
 ### Sensitivity
 
 | Slider | What it controls |
 |--------|-----------------|
 | Distance | How far (px) you must drag before a space switch fires. Higher = less sensitive. |
-| Speed | How fast (px/s) a flick must travel to fire early, before the distance is reached. Higher = less sensitive. |
-
+| Speed | How fast (px/s) a flick must travel to fire early, before the distance is reached. Higher = less sensitive. || Space delay | Gap (ms) between arrow presses when jumping multiple Spaces at once (e.g. via the ring). Must exceed the Space animation (~280 ms). |
 ### Gestures
 
-Hold the configured button and move the mouse:
+Hold the **gesture button** and move the mouse:
 
 | Direction | Action |
 |-----------|--------|
@@ -68,6 +68,8 @@ Hold the configured button and move the mouse:
 | Swipe down | App Exposé / Space down (Ctrl+↓) |
 
 **Short click** (hold < 0.3 s with no swipe): the original button click is passed through unchanged.
+
+Hold the **ring button** to show the action ring overlay around the cursor. While held, move to a numbered Space slot and release to jump directly to that Space.
 
 Settings are saved automatically and restored on next launch.
 

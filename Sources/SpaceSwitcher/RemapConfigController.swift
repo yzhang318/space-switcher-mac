@@ -10,12 +10,15 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     private var enableCheckbox:   NSButton!
     private var mousePopup:       NSPopUpButton!
     private var buttonPopup:      NSPopUpButton!
+    private var ringButtonPopup:  NSPopUpButton!
     private var thresholdSlider:  NSSlider!
     private var thresholdLabel:   NSTextField!
     private var velocitySlider:   NSSlider!
     private var velocityLabel:    NSTextField!
+    private var spaceDelaySlider: NSSlider!
+    private var spaceDelayLabel:  NSTextField!
     private var statusLabel:      NSTextField!
-    private var accessHintLabel:        NSTextField!
+    private var accessHintLabel:  NSTextField!
 
     private var stateObserver: NSObjectProtocol?
 
@@ -24,7 +27,7 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     init(engine: GestureEngine) {
         self.engine = engine
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 465),
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -72,17 +75,17 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
 
         // ── Button row ────────────────────────────────────────────────────
         buttonPopup = NSPopUpButton()
-        buttonPopup.addItems(withTitles: (1...8).map {
-            switch $0 {
-            case 1: return "Button 1 (Left)"
-            case 2: return "Button 2 (Right)"
-            case 3: return "Button 3 (Middle)"
-            default: return "Button \($0)"
-            }
-        })
+        buttonPopup.addItems(withTitles: (1...8).map { Self.buttonTitle($0) })
         buttonPopup.target = self
         buttonPopup.action = #selector(controlChanged)
-        let buttonRow = hstack([label("Button:", width: 76), buttonPopup])
+        let buttonRow = hstack([label("Button:", width: 90), buttonPopup])
+
+        // ── Ring button row ───────────────────────────────────────────────
+        ringButtonPopup = NSPopUpButton()
+        ringButtonPopup.addItems(withTitles: (1...8).map { Self.buttonTitle($0) })
+        ringButtonPopup.target = self
+        ringButtonPopup.action = #selector(controlChanged)
+        let ringButtonRow = hstack([label("Ring button:", width: 90), ringButtonPopup])
 
         // ── Threshold / sensitivity row ───────────────────────────────────
         thresholdSlider = NSSlider(value: 150, minValue: 20, maxValue: 600,
@@ -112,6 +115,20 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
 
         let velRow = hstack([label("Speed:", width: 76), velocitySlider, velocityLabel])
 
+        // ── Space delay row ───────────────────────────────────────────────
+        // Controls the inter-press delay (ms) when switching multiple spaces at once.
+        spaceDelaySlider = NSSlider(value: 280, minValue: 100, maxValue: 600,
+                                    target: self, action: #selector(sliderMoved))
+        spaceDelaySlider.isContinuous = true
+
+        spaceDelayLabel = NSTextField(labelWithString: " 280 ms")
+        spaceDelayLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        spaceDelayLabel.alignment = .right
+        spaceDelayLabel.translatesAutoresizingMaskIntoConstraints = false
+        spaceDelayLabel.widthAnchor.constraint(equalToConstant: 60).isActive = true
+
+        let delayRow = hstack([label("Space delay:", width: 90), spaceDelaySlider, spaceDelayLabel])
+
         // ── Status ────────────────────────────────────────────────────────
         statusLabel = NSTextField(labelWithString: "—")
         statusLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -125,7 +142,9 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             "Fast flick: fires as soon as the speed threshold is crossed (distance is ignored).\n" +
             "Slow drag: fires when accumulated movement exceeds the distance threshold.\n" +
             "Fast → slow → fast fires twice (velocity resets during the slow phase).\n" +
-            "A short click (< 0.3 s) without significant movement re-fires the original button action."
+            "A short click (< 0.3 s) without significant movement re-fires the original button action.\n" +
+            "Ring button: hold to show the space-picker ring; release on a slot to jump to that space.\n" +
+            "Space delay: minimum gap between arrow presses when jumping multiple spaces."
         )
         hintLabel.font = NSFont.systemFont(ofSize: 11)
         hintLabel.textColor = .secondaryLabelColor
@@ -146,8 +165,10 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             sep1,
             mouseRow,
             buttonRow,
+            ringButtonRow,
             thrRow,
             velRow,
+            delayRow,
             sep2,
             statusRow,
             hintLabel,
@@ -171,8 +192,10 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             sep2.widthAnchor.constraint(equalTo: w, constant: -32),
             mouseRow.widthAnchor.constraint(equalTo: w, constant: -32),
             buttonRow.widthAnchor.constraint(equalTo: w, constant: -32),
+            ringButtonRow.widthAnchor.constraint(equalTo: w, constant: -32),
             thrRow.widthAnchor.constraint(equalTo: w, constant: -32),
             velRow.widthAnchor.constraint(equalTo: w, constant: -32),
+            delayRow.widthAnchor.constraint(equalTo: w, constant: -32),
             statusRow.widthAnchor.constraint(equalTo: w, constant: -32),
             hintLabel.widthAnchor.constraint(equalTo: w, constant: -32),
             accessHintLabel.widthAnchor.constraint(equalTo: w, constant: -32),
@@ -185,10 +208,14 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
         let cfg = engine.config
         enableCheckbox.state         = cfg.enabled ? .on : .off
         buttonPopup.selectItem(at: max(0, cfg.buttonNumber - 1))
+        ringButtonPopup.selectItem(at: max(0, cfg.ringButtonNumber - 1))
         thresholdSlider.integerValue = Int(cfg.movementThreshold)
         thresholdLabel.stringValue   = "\(Int(cfg.movementThreshold)) px"
         velocitySlider.integerValue  = Int(cfg.velocityThreshold)
         velocityLabel.stringValue    = "\(Int(cfg.velocityThreshold)) px/s"
+        let delayMs = Int(cfg.multiSpaceDelay * 1000)
+        spaceDelaySlider.integerValue = delayMs
+        spaceDelayLabel.stringValue   = "\(delayMs) ms"
         refreshStatus()
     }
 
@@ -225,8 +252,9 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func sliderMoved() {
-        thresholdLabel.stringValue = "\(thresholdSlider.integerValue) px"
-        velocityLabel.stringValue  = "\(velocitySlider.integerValue) px/s"
+        thresholdLabel.stringValue  = "\(thresholdSlider.integerValue) px"
+        velocityLabel.stringValue   = "\(velocitySlider.integerValue) px/s"
+        spaceDelayLabel.stringValue = "\(spaceDelaySlider.integerValue) ms"
         saveAndApply()
     }
 
@@ -236,12 +264,14 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             : nil
 
         let cfg = GestureConfig(
-            enabled:               enableCheckbox.state == .on,
-            deviceKey:             selectedDevice?.uniqueKey,
-            deviceName:            selectedDevice?.name,
-            buttonNumber:          buttonPopup.indexOfSelectedItem + 1,
-            movementThreshold:     CGFloat(thresholdSlider.integerValue),
-            velocityThreshold:     CGFloat(velocitySlider.integerValue)
+            enabled:           enableCheckbox.state == .on,
+            deviceKey:         selectedDevice?.uniqueKey,
+            deviceName:        selectedDevice?.name,
+            buttonNumber:      buttonPopup.indexOfSelectedItem + 1,
+            ringButtonNumber:  ringButtonPopup.indexOfSelectedItem + 1,
+            movementThreshold: CGFloat(thresholdSlider.integerValue),
+            velocityThreshold: CGFloat(velocitySlider.integerValue),
+            multiSpaceDelay:   Double(spaceDelaySlider.integerValue) / 1000.0
         )
         cfg.save()
         engine.apply(cfg)
@@ -291,6 +321,17 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: - View helpers
+
+    private static func buttonTitle(_ n: Int) -> String {
+        switch n {
+        case 1: return "Button 1 (Left)"
+        case 2: return "Button 2 (Right)"
+        case 3: return "Button 3 (Middle)"
+        case 4: return "Button 4 (Back)"
+        case 5: return "Button 5 (Forward)"
+        default: return "Button \(n)"
+        }
+    }
 
     private func label(_ text: String, width: CGFloat) -> NSTextField {
         let l = NSTextField(labelWithString: text)

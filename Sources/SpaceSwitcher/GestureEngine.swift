@@ -63,9 +63,13 @@ final class GestureEngine {
     /// Velocity (px/s) below which the hysteresis sign resets between flicks.
     private let velocityResetThreshold: CGFloat  = 80
 
-    // MARK: Visual feedback overlay (ring around cursor while button held)
+    // MARK: Ring-button state (separate from gesture/swipe button)
+    private var ringButtonHeld  = false
+    private var targetDeviceRingButtonHeld = false
+
+    // MARK: Visual feedback overlay (shown when ring button is held)
     private let actionRing = ActionRingOverlay()
-    /// Snapshot of the Space layout taken at button-down; used to translate the
+    /// Snapshot of the Space layout taken at ring-button-down; used to translate the
     /// hovered slot into a left/right delta from the current Space.
     private var spaceLayoutAtDown: (count: Int, currentIndex: Int)?
     private var ringVisible = false
@@ -100,13 +104,15 @@ final class GestureEngine {
     func stop() {
         removeEventTap()
         stopHIDTracker()
-        gestureButtonHeld = false
-        accumulatedDeltaX = 0
-        accumulatedDeltaY = 0
+        gestureButtonHeld  = false
+        ringButtonHeld     = false
+        accumulatedDeltaX  = 0
+        accumulatedDeltaY  = 0
         motionSamples.removeAll()
-        lastFlickSign     = 0
-        buttonDownTime    = nil
-        targetDeviceButtonHeld = false
+        lastFlickSign      = 0
+        buttonDownTime     = nil
+        targetDeviceButtonHeld     = false
+        targetDeviceRingButtonHeld = false
         actionRing.hide()
     }
 
@@ -129,8 +135,12 @@ final class GestureEngine {
             if let targetKey = self.config.deviceKey {
                 guard event.device.uniqueKey == targetKey else { return }
             }
-            guard event.button == self.config.buttonNumber else { return }
-            self.targetDeviceButtonHeld = event.pressed
+            if event.button == self.config.buttonNumber {
+                self.targetDeviceButtonHeld = event.pressed
+            }
+            if event.button == self.config.ringButtonNumber {
+                self.targetDeviceRingButtonHeld = event.pressed
+            }
         }
         hidMonitor = monitor
     }
@@ -219,82 +229,95 @@ final class GestureEngine {
     private func onButtonDown(event: CGEvent) -> Unmanaged<CGEvent>? {
         // CGEvent button number is 0-indexed; config uses 1-indexed to match IOKit HID.
         let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber)) + 1
-        guard btn == config.buttonNumber else { return Unmanaged.passUnretained(event) }
 
-        // Device gate: IOKit tracker must confirm this physical device matches the config.
-        // (IOKit callbacks arrive before the CGEvent from the same HID report.)
-        if config.deviceKey != nil, !targetDeviceButtonHeld {
-            return Unmanaged.passUnretained(event)   // event from wrong device — pass through
+        // ── Gesture / swipe button ────────────────────────────────────────────
+        if btn == config.buttonNumber {
+            // Device gate: IOKit tracker must confirm this physical device matches.
+            if config.deviceKey != nil, !targetDeviceButtonHeld {
+                return Unmanaged.passUnretained(event)
+            }
+            gestureButtonHeld = true
+            accumulatedDeltaX = 0
+            accumulatedDeltaY = 0
+            motionSamples.removeAll()
+            lastFlickSign     = 0
+            buttonDownTime    = Date()
+            // Ring is NOT shown for the swipe button.
+            broadcastState()
+            return nil   // suppress
         }
 
-        gestureButtonHeld = true
-        accumulatedDeltaX = 0
-        accumulatedDeltaY = 0
-        motionSamples.removeAll()
-        lastFlickSign     = 0
-        buttonDownTime    = Date()
-
-        // Snapshot the live Space layout and show the action ring.
-        // The ring is suppressed for trivial layouts (0 or 1 Space).
-        let layout = SpaceQuery.mainDisplayLayout()
-        spaceLayoutAtDown = layout
-        if let layout, layout.count > 1 {
-            actionRing.show(at: NSEvent.mouseLocation,
-                            slotCount: layout.count,
-                            currentIndex: layout.currentIndex)
-            ringVisible = true
-        } else {
-            ringVisible = false
+        // ── Ring button ───────────────────────────────────────────────────────
+        if btn == config.ringButtonNumber {
+            // Device gate
+            if config.deviceKey != nil, !targetDeviceRingButtonHeld {
+                return Unmanaged.passUnretained(event)
+            }
+            ringButtonHeld = true
+            let layout = SpaceQuery.mainDisplayLayout()
+            spaceLayoutAtDown = layout
+            if let layout, layout.count > 1 {
+                actionRing.show(at: NSEvent.mouseLocation,
+                                slotCount: layout.count,
+                                currentIndex: layout.currentIndex)
+                ringVisible = true
+            } else {
+                ringVisible = false
+            }
+            broadcastState()
+            return nil   // suppress
         }
 
-        broadcastState()
-        return nil   // ← suppress: the button-down never reaches any app
+        return Unmanaged.passUnretained(event)
     }
 
     private func onButtonUp(event: CGEvent) -> Unmanaged<CGEvent>? {
         let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber)) + 1
-        guard gestureButtonHeld, btn == config.buttonNumber else {
-            return Unmanaged.passUnretained(event)
-        }
 
-        let elapsed      = buttonDownTime.map { Date().timeIntervalSince($0) } ?? 1.0
-        let noSwipe      = abs(accumulatedDeltaX) < config.movementThreshold * 0.3
-                        && abs(accumulatedDeltaY) < config.movementThreshold * 0.3
-        let isShortClick = elapsed < shortClickDuration && noSwipe
+        // ── Gesture / swipe button ────────────────────────────────────────────
+        if gestureButtonHeld, btn == config.buttonNumber {
+            let elapsed      = buttonDownTime.map { Date().timeIntervalSince($0) } ?? 1.0
+            let noSwipe      = abs(accumulatedDeltaX) < config.movementThreshold * 0.3
+                            && abs(accumulatedDeltaY) < config.movementThreshold * 0.3
+            let isShortClick = elapsed < shortClickDuration && noSwipe
 
-        // Snapshot ring selection BEFORE we hide it.
-        let ringSelection = ringVisible ? actionRing.selectedIndex : nil
-        let layout = spaceLayoutAtDown
+            gestureButtonHeld = false
+            accumulatedDeltaX = 0
+            accumulatedDeltaY = 0
+            motionSamples.removeAll()
+            lastFlickSign     = 0
+            buttonDownTime    = nil
+            broadcastState()
 
-        gestureButtonHeld = false
-        accumulatedDeltaX = 0
-        accumulatedDeltaY = 0
-        motionSamples.removeAll()
-        lastFlickSign     = 0
-        buttonDownTime    = nil
-        actionRing.hide()
-        ringVisible = false
-        spaceLayoutAtDown = nil
-        broadcastState()
-
-        // Ring selection takes priority over swipe / short-click handling.
-        if let target = ringSelection, let layout {
-            switchToSpace(targetIndex: target, fromIndex: layout.currentIndex)
+            if isShortClick {
+                let position = event.location
+                let btn0     = config.buttonNumber - 1
+                DispatchQueue.main.async { [weak self] in
+                    self?.repostButtonClick(position: position, button0: btn0)
+                }
+            }
             return nil
         }
 
-        if isShortClick {
-            // Short click with no significant swipe — restore the original button action.
-            // Re-post at .cgSessionEventTap so the event enters the stream *below* our
-            // cghidEventTap and is not intercepted by us again.
-            let position = event.location
-            let btn0     = config.buttonNumber - 1   // 0-indexed for CGEvent
-            DispatchQueue.main.async { [weak self] in
-                self?.repostButtonClick(position: position, button0: btn0)
+        // ── Ring button ───────────────────────────────────────────────────────
+        if ringButtonHeld, btn == config.ringButtonNumber {
+            // Capture selection before hiding.
+            let ringSelection = ringVisible ? actionRing.selectedIndex : nil
+            let layout = spaceLayoutAtDown
+
+            ringButtonHeld    = false
+            actionRing.hide()
+            ringVisible       = false
+            spaceLayoutAtDown = nil
+            broadcastState()
+
+            if let target = ringSelection, let layout {
+                switchToSpace(targetIndex: target, fromIndex: layout.currentIndex)
             }
+            return nil
         }
 
-        return nil   // suppress the original up regardless
+        return Unmanaged.passUnretained(event)
     }
 
     /// Re-issues a button down+up pair at cgSessionEventTap level,
@@ -324,20 +347,12 @@ final class GestureEngine {
     }
 
     private func onMouseMoved(event: CGEvent) {
-        guard gestureButtonHeld else { return }
-
-        // Update the action-ring hover state from the live cursor position.
-        // While the cursor is hovering a numbered slot we suppress swipe firing
-        // so that motion toward a slot doesn't accidentally trigger a swipe.
+        // Update the action-ring hover state whenever the ring button is held.
         if ringVisible {
             actionRing.updateCursor(NSEvent.mouseLocation)
-            if actionRing.selectedIndex != nil {
-                accumulatedDeltaX = 0
-                accumulatedDeltaY = 0
-                motionSamples.removeAll()
-                return
-            }
         }
+
+        guard gestureButtonHeld else { return }
 
         let dx  = CGFloat(event.getIntegerValueField(.mouseEventDeltaX))
         let dy  = CGFloat(event.getIntegerValueField(.mouseEventDeltaY))
@@ -464,11 +479,12 @@ final class GestureEngine {
         // Use `key down` + `key up` for the arrow (instead of `key code`) so each
         // press is unambiguously a fresh event rather than auto-repeat, which the
         // WM treats differently and may coalesce.
+        let delayStr = String(format: "%.3f", config.multiSpaceDelay)
         var keyLines = ""
         for i in 0..<count {
             keyLines += "    key down \(keyCode)\n    delay 0.02\n    key up \(keyCode)\n"
             if i < count - 1 {
-                keyLines += "    delay 0.28\n"
+                keyLines += "    delay \(delayStr)\n"
             }
         }
         let script = """
