@@ -1,5 +1,13 @@
 import AppKit
 
+/// Lightweight stand-in used in the mouse popup when the saved device is not
+/// currently connected. Keeps the binding visible to the user so they don't
+/// think the configuration was lost.
+struct HIDMouseDevicePlaceholder {
+    let uniqueKey: String
+    let name: String
+}
+
 final class RemapConfigController: NSWindowController, NSWindowDelegate {
 
     var onClose: (() -> Void)?
@@ -19,6 +27,7 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     private var spaceDelayLabel:  NSTextField!
     private var statusLabel:      NSTextField!
     private var accessHintLabel:  NSTextField!
+    private var disconnectedHintLabel: NSTextField!
 
     private var stateObserver: NSObjectProtocol?
 
@@ -156,6 +165,11 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
         accessHintLabel.textColor = .systemOrange
         accessHintLabel.isHidden = true
 
+        disconnectedHintLabel = NSTextField(wrappingLabelWithString: "")
+        disconnectedHintLabel.font = NSFont.systemFont(ofSize: 11)
+        disconnectedHintLabel.textColor = .systemOrange
+        disconnectedHintLabel.isHidden = true
+
         // ── Outer stack ───────────────────────────────────────────────────────────
         let sep1 = separator()
         let sep2 = separator()
@@ -173,6 +187,7 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             statusRow,
             hintLabel,
             accessHintLabel,
+            disconnectedHintLabel,
         ])
         stack.orientation = .vertical
         stack.alignment   = .leading
@@ -199,6 +214,7 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             statusRow.widthAnchor.constraint(equalTo: w, constant: -32),
             hintLabel.widthAnchor.constraint(equalTo: w, constant: -32),
             accessHintLabel.widthAnchor.constraint(equalTo: w, constant: -32),
+            disconnectedHintLabel.widthAnchor.constraint(equalTo: w, constant: -32),
         ])
     }
 
@@ -223,8 +239,11 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
         let mice = HIDMouseMonitor().enumerateMice()
         mousePopup.removeAllItems()
 
-        let anyItem = NSMenuItem(title: "Any Mouse", action: nil, keyEquivalent: "")
-        mousePopup.menu?.addItem(anyItem)
+        if mice.isEmpty {
+            let item = NSMenuItem(title: "No mice detected", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            mousePopup.menu?.addItem(item)
+        }
 
         for mouse in mice {
             let item = NSMenuItem(title: mouse.name, action: nil, keyEquivalent: "")
@@ -232,17 +251,38 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
             mousePopup.menu?.addItem(item)
         }
 
+        // If the saved device is not currently connected, add a disabled
+        // placeholder entry so the user can see which mouse the config is
+        // bound to even while it's unplugged.
+        if let savedKey = engine.config.deviceKey,
+           !mice.contains(where: { $0.uniqueKey == savedKey }) {
+            let title = (engine.config.deviceName ?? "Saved mouse") + "  (not connected)"
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            // Remember the key so `saveAndApply` doesn't lose the binding.
+            item.representedObject = HIDMouseDevicePlaceholder(uniqueKey: savedKey,
+                                                              name: engine.config.deviceName ?? "")
+            mousePopup.menu?.addItem(item)
+            mousePopup.select(item)
+            updateEnableAvailability()
+            return
+        }
+
         // Re-select previously saved device
         if let savedKey = engine.config.deviceKey {
-            for i in 1..<mousePopup.numberOfItems {
+            for i in 0..<mousePopup.numberOfItems {
                 if let d = mousePopup.item(at: i)?.representedObject as? HIDMouseDevice,
                    d.uniqueKey == savedKey {
                     mousePopup.selectItem(at: i)
+                    updateEnableAvailability()
                     return
                 }
             }
         }
-        mousePopup.selectItem(at: 0)
+        if mousePopup.numberOfItems > 0 {
+            mousePopup.selectItem(at: 0)
+        }
+        updateEnableAvailability()
     }
 
     // MARK: - Actions
@@ -259,14 +299,32 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
     }
 
     private func saveAndApply() {
-        let selectedDevice = mousePopup.indexOfSelectedItem > 0
-            ? mousePopup.selectedItem?.representedObject as? HIDMouseDevice
-            : nil
+        // Determine the selected device. Either an HIDMouseDevice (currently
+        // connected) or HIDMouseDevicePlaceholder (saved but not connected).
+        let rep = mousePopup.selectedItem?.representedObject
+        let selectedKey:  String?
+        let selectedName: String?
+        if let dev = rep as? HIDMouseDevice {
+            selectedKey  = dev.uniqueKey
+            selectedName = dev.name
+        } else if let ph = rep as? HIDMouseDevicePlaceholder {
+            selectedKey  = ph.uniqueKey
+            selectedName = ph.name
+        } else {
+            selectedKey  = nil
+            selectedName = nil
+        }
+
+        // Cannot enable without a selected device.
+        let wantEnabled = enableCheckbox.state == .on && selectedKey != nil
+        if enableCheckbox.state == .on && selectedKey == nil {
+            enableCheckbox.state = .off
+        }
 
         let cfg = GestureConfig(
-            enabled:           enableCheckbox.state == .on,
-            deviceKey:         selectedDevice?.uniqueKey,
-            deviceName:        selectedDevice?.name,
+            enabled:           wantEnabled,
+            deviceKey:         selectedKey,
+            deviceName:        selectedName,
             buttonNumber:      buttonPopup.indexOfSelectedItem + 1,
             ringButtonNumber:  ringButtonPopup.indexOfSelectedItem + 1,
             movementThreshold: CGFloat(thresholdSlider.integerValue),
@@ -277,7 +335,18 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
         engine.apply(cfg)
         // Prompt for Accessibility permission the first time the user enables
         if cfg.enabled { engine.requestAccessibilityIfNeeded() }
+        updateEnableAvailability()
         refreshStatus()
+    }
+
+    /// The enable checkbox is only usable when a real device is selected.
+    private func updateEnableAvailability() {
+        let hasDevice = (mousePopup.selectedItem?.representedObject as? HIDMouseDevice) != nil
+            || (mousePopup.selectedItem?.representedObject as? HIDMouseDevicePlaceholder) != nil
+        enableCheckbox.isEnabled = hasDevice
+        if !hasDevice && enableCheckbox.state == .on {
+            enableCheckbox.state = .off
+        }
     }
 
     // MARK: - Engine state subscription
@@ -294,6 +363,8 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
                 self.statusLabel.stringValue = "● Button held — move mouse horizontally"
                 self.statusLabel.textColor   = .systemGreen
             } else {
+                // Device may have just (re)connected — refresh popup and status.
+                self.refreshMice()
                 self.refreshStatus()
             }
         }
@@ -301,10 +372,24 @@ final class RemapConfigController: NSWindowController, NSWindowDelegate {
 
     private func refreshStatus() {
         let trusted = AXIsProcessTrusted()
+        disconnectedHintLabel.isHidden = true
         if !engine.config.enabled {
-            statusLabel.stringValue   = "Disabled"
+            if engine.config.deviceKey == nil {
+                statusLabel.stringValue   = "No mouse selected"
+            } else {
+                statusLabel.stringValue   = "Disabled"
+            }
             statusLabel.textColor     = .secondaryLabelColor
             accessHintLabel.isHidden  = true
+        } else if engine.isAutoDisabled {
+            let name = engine.config.deviceName ?? "selected mouse"
+            statusLabel.stringValue   = "Paused — \(name) not connected"
+            statusLabel.textColor     = .systemOrange
+            accessHintLabel.isHidden  = true
+            disconnectedHintLabel.stringValue =
+                "⚠  Gesture is paused because the configured mouse “\(name)” is not connected. " +
+                "It will resume automatically when the mouse is reconnected."
+            disconnectedHintLabel.isHidden = false
         } else if !trusted {
             statusLabel.stringValue   = "Waiting for Accessibility permission…"
             statusLabel.textColor     = .systemOrange

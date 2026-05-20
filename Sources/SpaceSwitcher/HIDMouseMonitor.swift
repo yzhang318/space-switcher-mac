@@ -37,6 +37,10 @@ final class HIDMouseMonitor {
     private(set) var devices: [HIDMouseDevice] = []
     private var callback: EventCallback?
 
+    /// Invoked on the main run loop whenever a mouse is connected or disconnected
+    /// while `startMonitoring` is active.
+    var devicesChangedCallback: (() -> Void)?
+
     /// nil = all mice
     var filterDeviceKey: String?
     /// nil = all buttons
@@ -74,6 +78,16 @@ final class HIDMouseMonitor {
             guard !monitor.deviceEntries.contains(where: { CFEqual($0.ref, deviceRef) }) else { return }
             monitor.deviceEntries.append((ref: deviceRef, device: dev))
             monitor.devices = monitor.deviceEntries.map(\.device)
+            monitor.devicesChangedCallback?()
+        }, ctx)
+
+        // Fires when a device is unplugged or otherwise removed.
+        IOHIDManagerRegisterDeviceRemovalCallback(mgr, { ctx, _, _, deviceRef in
+            guard let ctx else { return }
+            let monitor = Unmanaged<HIDMouseMonitor>.fromOpaque(ctx).takeUnretainedValue()
+            monitor.deviceEntries.removeAll { CFEqual($0.ref, deviceRef) }
+            monitor.devices = monitor.deviceEntries.map(\.device)
+            monitor.devicesChangedCallback?()
         }, ctx)
 
         IOHIDManagerRegisterInputValueCallback(mgr, { ctx, _, _, value in
@@ -92,6 +106,7 @@ final class HIDMouseMonitor {
         IOHIDManagerClose(mgr, IOOptionBits(kIOHIDOptionsTypeNone))
         hidManager = nil
         callback = nil
+        devicesChangedCallback = nil
         deviceEntries = []
         devices = []
     }

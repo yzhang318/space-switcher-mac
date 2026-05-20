@@ -77,6 +77,10 @@ final class GestureEngine {
     // MARK: Notifications
     static let didChangeState = Notification.Name("GestureEngineDidChangeState")
 
+    /// True when the user has enabled the gesture but the configured mouse is
+    /// not currently connected, so the event tap is suspended.
+    private(set) var isAutoDisabled = false
+
     init(config: GestureConfig) {
         self.config = config
     }
@@ -97,7 +101,9 @@ final class GestureEngine {
     func start() {
         if config.enabled {
             startHIDTracker()
-            installEventTap()
+            // Whether the event tap actually installs depends on whether the
+            // configured device is currently connected.
+            evaluateDevicePresence()
         }
     }
 
@@ -113,6 +119,7 @@ final class GestureEngine {
         buttonDownTime     = nil
         targetDeviceButtonHeld     = false
         targetDeviceRingButtonHeld = false
+        isAutoDisabled     = false
         actionRing.hide()
     }
 
@@ -129,6 +136,9 @@ final class GestureEngine {
 
     private func startHIDTracker() {
         let monitor = HIDMouseMonitor()
+        monitor.devicesChangedCallback = { [weak self] in
+            self?.evaluateDevicePresence()
+        }
         monitor.startMonitoring { [weak self] event in
             guard let self else { return }
             // If no device filter is set, treat any device as a match.
@@ -149,6 +159,37 @@ final class GestureEngine {
         hidMonitor?.stopMonitoring()
         hidMonitor = nil
         targetDeviceButtonHeld = false
+    }
+
+    // MARK: - Device presence
+
+    /// Checks whether the configured mouse is currently connected and
+    /// installs / removes the event tap accordingly. When the device is
+    /// missing while the user has the gesture enabled, the engine enters
+    /// the `isAutoDisabled` state — the saved `enabled` flag in the config
+    /// is **not** changed, so the gesture resumes automatically once the
+    /// device reappears.
+    private func evaluateDevicePresence() {
+        guard config.enabled, let key = config.deviceKey else {
+            if eventTap != nil { removeEventTap() }
+            if isAutoDisabled {
+                isAutoDisabled = false
+                broadcastState()
+            }
+            return
+        }
+        let present = hidMonitor?.devices.contains(where: { $0.uniqueKey == key }) ?? false
+        if present {
+            let wasAuto = isAutoDisabled
+            isAutoDisabled = false
+            if eventTap == nil { installEventTap() }
+            if wasAuto { broadcastState() }
+        } else {
+            if eventTap != nil { removeEventTap() }
+            let wasAuto = isAutoDisabled
+            isAutoDisabled = true
+            if !wasAuto { broadcastState() }
+        }
     }
 
     // MARK: - CGEventTap
