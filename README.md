@@ -14,14 +14,20 @@ A macOS menu-bar app that switches Spaces and remaps a mouse button + swipe gest
 
 ---
 
-## Installation
+## Download
 
-```bash
-bash build.sh
-open SpaceSwitcher.app
-```
+Download the latest `SpaceSwitcher-vX.Y.Z.zip` from the [Releases](https://github.com/yzhang318/space-switcher-mac/releases) page, unzip it, and move **SpaceSwitcher.app** to `/Applications` (optional).
 
-On first launch macOS will prompt for Accessibility permission. Grant it, then relaunch the app.
+> **macOS may show "unidentified developer" the first time.**
+> Right-click (or Control-click) → **Open**, then click **Open** in the dialog.
+
+### First launch
+
+1. Double-click **SpaceSwitcher.app** (or right-click → Open if Gatekeeper blocks it).
+2. macOS will prompt for **Accessibility** permission — grant it in System Settings.
+3. Relaunch the app. The cursor-arrow icon (↖) appears in the menu bar.
+
+To build it yourself instead, see [Build from source](#build-from-source).
 
 ---
 
@@ -46,7 +52,7 @@ Open **Gesture Remap…** from the menu bar.
 ### Setup
 
 1. **Enable gesture remap** — check the box to activate.
-2. **Mouse** — choose a specific mouse, or leave on *Any Mouse* to match all devices.
+2. **Mouse** — choose the mouse to use. The gesture is paused automatically while that mouse is disconnected and resumes when it is reconnected.
 3. **Button** — the button you hold while swiping (default: Button 4 / Back).
 4. **Ring button** — the button that shows the action ring overlay (default: Button 5 / Forward). Hold it to display the Space picker ring; release over a slot to jump directly to that Space.
 
@@ -55,7 +61,9 @@ Open **Gesture Remap…** from the menu bar.
 | Slider | What it controls |
 |--------|-----------------|
 | Distance | How far (px) you must drag before a space switch fires. Higher = less sensitive. |
-| Speed | How fast (px/s) a flick must travel to fire early, before the distance is reached. Higher = less sensitive. || Space delay | Gap (ms) between arrow presses when jumping multiple Spaces at once (e.g. via the ring). Must exceed the Space animation (~280 ms). |
+| Speed | How fast (px/s) a flick must travel to fire early, before the distance is reached. Higher = less sensitive. |
+| Space delay | Gap (ms) between arrow presses when jumping multiple Spaces at once (e.g. via the ring). Must exceed the Space animation (~280 ms). |
+
 ### Gestures
 
 Hold the **gesture button** and move the mouse:

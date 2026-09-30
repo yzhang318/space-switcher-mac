@@ -14,14 +14,20 @@
 
 ---
 
-## 安装
+## 下载
 
-```bash
-bash build.sh
-open SpaceSwitcher.app
-```
+从 [Releases](https://github.com/yzhang318/space-switcher-mac/releases) 页面下载最新的 `SpaceSwitcher-vX.Y.Z.zip`，解压后可将 **SpaceSwitcher.app** 移动到“应用程序”文件夹（可选）。
 
-首次启动时，macOS 会提示授予辅助功能权限，授权后重新启动应用即可。
+> **首次打开时 macOS 可能提示"来自身份不明的开发者"。**
+> 右键（或按住 Control 单击）→ **打开**，在弹窗中再次点击 **打开** 即可。
+
+### 首次启动
+
+1. 双击 **SpaceSwitcher.app**（如被 Gatekeeper 阻止，右键 → 打开）。
+2. macOS 会请求**辅助功能**权限，在系统设置中授权。
+3. 重新启动应用，菜单栏中会出现光标箭头图标（↖）。
+
+如需自行编译，请参阅[从源码构建](#从源码构建)。
 
 ---
 
@@ -46,7 +52,7 @@ open SpaceSwitcher.app
 ### 基本设置
 
 1. **Enable gesture remap** — 勾选以启用手势重映射。
-2. **Mouse** — 选择特定鼠标，或保持 *Any Mouse* 以匹配所有设备。
+2. **Mouse** — 选择要使用的鼠标。该鼠标断开连接时手势会自动暂停，重新连接后自动恢复。
 3. **Button** — 按住触发手势的按键（默认：Button 4 / 后退键）。
 4. **Ring button** — 按住后在光标周围显示工作区选择环（默认：Button 5 / 前进键）。按住并移动到对应编号的格子后松开，即可直接跳转到该工作区。
 

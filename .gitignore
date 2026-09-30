@@ -15,3 +15,7 @@ SpaceSwitcher.app/
 
 # macOS
 .DS_Store
+
+# Local AI assistant files (not part of the public repo)
+.copilot/
+.github/copilot-instructions.md
